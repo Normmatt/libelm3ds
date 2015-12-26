@@ -40,14 +40,18 @@ CFILES		:=	$(call GET_FILES,c)
 SFILES		:=	$(call GET_FILES,s)
 OFILES		:=	$(patsubst $(SOURCE)/%,$(BUILD)/%,$(CFILES:.c=.o) $(SFILES:.s=.o))
 
-.PHONY: clean
+.PHONY: install clean
 
-$(foreach f,lib/$(TARGET).a $(OFILES),$(eval $f : | $(dir $f)/D))
+$(foreach f,$(BUILD)/$(TARGET).a $(OFILES),$(eval $f : | $(dir $f)/D))
 
-lib/$(TARGET).a	:	$(OFILES)
+$(BUILD)/$(TARGET).a	:	$(OFILES)
 
 %/D:
 	@[ -d $(dir $@) ] || mkdir -p $(dir $@)
+
+install: $(BUILD)/$(TARGET).a include
+	cp -R include $(DESTDIR)
+	cp $(BUILD)/$(TARGET).a -t $(DESTDIR)/lib
 
 clean:
 	@echo clean ...
