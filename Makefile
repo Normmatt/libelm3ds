@@ -11,14 +11,13 @@ include $(DEVKITARM)/ds_rules
 #---------------------------------------------------------------------------------
 # TARGET is the name of the output
 # BUILD is the directory where object files & intermediate files will be placed
-# SOURCES is a list of directories containing source code
+# SOURCE is the directory containing source code
 # DATA is a list of directories containing data files
 # INCLUDES is a list of directories containing header files
 #---------------------------------------------------------------------------------
-TARGET		:=	$(shell basename $(CURDIR))
+TARGET		:=	libelm3ds
 BUILD		:=	build
-SOURCES		:=	source source/sdmmc
-DATA		:=	data
+SOURCE		:=	source
 INCLUDES	:=	include
 
 #---------------------------------------------------------------------------------
@@ -29,94 +28,37 @@ ARCH	:=	-mthumb -mthumb-interwork
 CFLAGS	:=	-g -Wall -Os -std=c11\
 		-march=armv5te -mtune=arm946e-s \
 		-fomit-frame-pointer -ffast-math \
-		$(ARCH)
+		$(ARCH) -Iinclude
 
 CFLAGS	+=	$(INCLUDE) -DARM9 -fno-dwarf2-cfi-asm 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
 
-ASFLAGS	:=	-g $(ARCH) -march=armv5te -mtune=arm946e-s
 LDFLAGS	=	-specs=ds_arm9.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
-LIBS	:=	-lnds9
+GET_FILES	=	$(wildcard $(SOURCE)/*.$(1)) $(wildcard $(SOURCE)/**/*.$(1))
+CFILES		:=	$(call GET_FILES,c)
+SFILES		:=	$(call GET_FILES,s)
+OFILES		:=	$(patsubst $(SOURCE)/%,$(BUILD)/%,$(CFILES:.c=.o) $(SFILES:.s=.o))
 
-LIBDIRS	:=	$(LIBNDS)
+.PHONY: clean
 
-#---------------------------------------------------------------------------------
-# no real need to edit anything past this point unless you need to add additional
-# rules for different file extensions
-#---------------------------------------------------------------------------------
-ifneq ($(BUILD),$(notdir $(CURDIR)))
-#---------------------------------------------------------------------------------
+$(foreach f,lib/$(TARGET).a $(OFILES),$(eval $f : | $(dir $f)/D))
 
-export OUTPUT	:=	$(CURDIR)/lib/$(TARGET).a
+lib/$(TARGET).a	:	$(OFILES)
 
-export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
-			$(foreach dir,$(DATA),$(CURDIR)/$(dir))
+%/D:
+	@[ -d $(dir $@) ] || mkdir -p $(dir $@)
 
-export DEPSDIR	:=	$(CURDIR)/$(BUILD)
-
-CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
-CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
-SFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
-BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
-
-#---------------------------------------------------------------------------------
-# use CXX for linking C++ projects, CC for standard C
-#---------------------------------------------------------------------------------
-ifeq ($(strip $(CPPFILES)),)
-#---------------------------------------------------------------------------------
-	export LD	:=	$(CC)
-#---------------------------------------------------------------------------------
-else
-#---------------------------------------------------------------------------------
-	export LD	:=	$(CXX)
-#---------------------------------------------------------------------------------
-endif
-#---------------------------------------------------------------------------------
-
-export OFILES	:=	$(addsuffix .o,$(BINFILES)) \
-			$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
-
-export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
-			-I$(CURDIR)/$(BUILD)
-
-.PHONY: $(BUILD) clean all
-
-#---------------------------------------------------------------------------------
-all: $(BUILD)
-
-lib:
-	@[ -d $@ ] || mkdir -p $@
-
-$(BUILD): lib
-	@[ -d $@ ] || mkdir -p $@
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
-
-#---------------------------------------------------------------------------------
 clean:
 	@echo clean ...
 	@rm -fr $(BUILD) lib
 
-#---------------------------------------------------------------------------------
-else
-
 DEPENDS	:=	$(OFILES:.o=.d)
 
-#---------------------------------------------------------------------------------
-# main targets
-#---------------------------------------------------------------------------------
-$(OUTPUT)	:	$(OFILES)
+$(BUILD)/%.o: source/%.s
+	$(COMPILE.s) $(OUTPUT_OPTION) $<
 
-#---------------------------------------------------------------------------------
-%.bin.o	:	%.bin
-#---------------------------------------------------------------------------------
-	@echo $(notdir $<)
-	@$(bin2o)
-
+$(BUILD)/%.o: source/%.c
+	$(COMPILE.c) $(OUTPUT_OPTION) $<
 
 -include $(DEPENDS)
-
-#---------------------------------------------------------------------------------------
-endif
-#---------------------------------------------------------------------------------------
