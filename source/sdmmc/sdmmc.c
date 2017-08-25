@@ -35,12 +35,18 @@
 #include "sdmmc.h"
 //#include "DrawCharacter.h"
 
+//Uncomment to enable 32bit fifo support?
+//not currently working
 #define DATA32_SUPPORT
 
 #define TRUE 1
 #define FALSE 0
 
+#define bool int
+
 #define NO_INLINE __attribute__ ((noinline))
+
+#define RGB(r,g,b) (r<<24|b<<16|g<<8|r)
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,13 +56,30 @@ extern "C" {
 };
 #endif
 
-struct mmcdevice handelNAND;
-struct mmcdevice handelSD;
+//#define DEBUG_SDMMC // Doesn't work anyway...
+
+#ifdef DEBUG_SDMMC
+	extern uint8_t* topScreen;
+	extern void DrawHexWithName(unsigned char *screen, const char *str, unsigned int hex, int x, int y, int color, int bgcolor);
+	#define DEBUGPRINT(scr,str,hex,x,y,color,bg) DrawHexWithName(scr,str,hex,x,y,color,bg)
+#else
+	#define DEBUGPRINT(...)
+#endif
+
+//extern "C" void sdmmc_send_command(struct mmcdevice *ctx, uint32_t cmd, uint32_t args);
+//extern "C" void inittarget(struct mmcdevice *ctx);
+//extern "C" int SD_Init();
+//extern "C" int SD_Init2();
+//extern "C" int Nand_Init2();
+//extern "C" void InitSD();
+
+struct mmcdevice handleNAND;
+struct mmcdevice handleSD;
 
 mmcdevice *getMMCDevice(int drive)
 {
-	if(drive==0) return &handelNAND;
-	return &handelSD;
+	if(drive==0) return &handleNAND;
+	return &handleSD;
 }
 
 int geterror(struct mmcdevice *ctx)
@@ -77,39 +100,46 @@ void inittarget(struct mmcdevice *ctx)
 	{
 		sdmmc_mask16(REG_SDOPT,0x8000,0);
 	}
-	
+
 }
+
 
 void NO_INLINE sdmmc_send_command(struct mmcdevice *ctx, uint32_t cmd, uint32_t args)
 {
-	int getSDRESP = (cmd << 15) >> 31;
+	bool getSDRESP = (cmd << 15) >> 31;
 	uint16_t flags = (cmd << 15) >> 31;
-	const int readdata = cmd & 0x20000;
-	const int writedata = cmd & 0x40000;
-	
+	const bool readdata = cmd & 0x20000;
+	const bool writedata = cmd & 0x40000;
+
 	if(readdata || writedata)
 	{
 		flags |= TMIO_STAT0_DATAEND;
 	}
-	
+
 	ctx->error = 0;
 	while((sdmmc_read16(REG_SDSTATUS1) & TMIO_STAT1_CMD_BUSY)); //mmc working?
 	sdmmc_write16(REG_SDIRMASK0,0);
 	sdmmc_write16(REG_SDIRMASK1,0);
 	sdmmc_write16(REG_SDSTATUS0,0);
 	sdmmc_write16(REG_SDSTATUS1,0);
+#ifdef DATA32_SUPPORT
+//	if(readdata)sdmmc_mask16(REG_DATACTL32, 0x1000, 0x800);
+//	if(writedata)sdmmc_mask16(REG_DATACTL32, 0x800, 0x1000);
+//	sdmmc_mask16(REG_DATACTL32,0x1800,2);
+#else
 	sdmmc_mask16(REG_DATACTL32,0x1800,0);
+#endif
 	sdmmc_write16(REG_SDCMDARG0,args &0xFFFF);
 	sdmmc_write16(REG_SDCMDARG1,args >> 16);
 	sdmmc_write16(REG_SDCMD,cmd &0xFFFF);
-	
+
 	uint32_t size = ctx->size;
 	uint16_t *dataPtr = (uint16_t*)ctx->data;
 	uint32_t *dataPtr32 = (uint32_t*)ctx->data;
-	
-	int useBuf = ( NULL != dataPtr );
-	int useBuf32 = (useBuf && (0 == (3 & ((uint32_t)dataPtr))));
-	
+
+	bool useBuf = ( NULL != dataPtr );
+	bool useBuf32 = (useBuf && (0 == (3 & ((uint32_t)dataPtr))));
+
 	uint16_t status0 = 0;
 	while(1)
 	{
@@ -126,6 +156,7 @@ void NO_INLINE sdmmc_send_command(struct mmcdevice *ctx, uint32_t cmd, uint32_t 
 				if(useBuf)
 				{
 					sdmmc_mask16(REG_SDSTATUS1, TMIO_STAT1_RXRDY, 0);
+					//sdmmc_write16(REG_SDSTATUS1,~TMIO_STAT1_RXRDY);
 					if(size > 0x1FF)
 					{
 						#ifdef DATA32_SUPPORT
@@ -136,7 +167,7 @@ void NO_INLINE sdmmc_send_command(struct mmcdevice *ctx, uint32_t cmd, uint32_t 
 								*dataPtr32++ = sdmmc_read32(REG_SDFIFO32);
 							}
 						}
-						else 
+						else
 						{
 						#endif
 							for(int i = 0; i<0x200; i+=2)
@@ -149,7 +180,7 @@ void NO_INLINE sdmmc_send_command(struct mmcdevice *ctx, uint32_t cmd, uint32_t 
 						size -= 0x200;
 					}
 				}
-				
+
 				sdmmc_mask16(REG_DATACTL32, 0x800, 0);
 			}
 		}
@@ -164,6 +195,7 @@ void NO_INLINE sdmmc_send_command(struct mmcdevice *ctx, uint32_t cmd, uint32_t 
 				if(useBuf)
 				{
 					sdmmc_mask16(REG_SDSTATUS1, TMIO_STAT1_TXRQ, 0);
+					//sdmmc_write16(REG_SDSTATUS1,~TMIO_STAT1_TXRQ);
 					if(size > 0x1FF)
 					{
 						#ifdef DATA32_SUPPORT
@@ -180,7 +212,7 @@ void NO_INLINE sdmmc_send_command(struct mmcdevice *ctx, uint32_t cmd, uint32_t 
 						size -= 0x200;
 					}
 				}
-				
+
 				sdmmc_mask16(REG_DATACTL32, 0x1000, 0);
 			}
 		}
@@ -189,7 +221,7 @@ void NO_INLINE sdmmc_send_command(struct mmcdevice *ctx, uint32_t cmd, uint32_t 
 			ctx->error |= 4;
 			break;
 		}
-		
+
 		if(!(status1 & TMIO_STAT1_CMD_BUSY))
 		{
 			status0 = sdmmc_read16(REG_SDSTATUS0);
@@ -201,7 +233,7 @@ void NO_INLINE sdmmc_send_command(struct mmcdevice *ctx, uint32_t cmd, uint32_t 
 			{
 				ctx->error |= 0x2;
 			}
-			
+
 			if((status0 & flags) == flags)
 				break;
 		}
@@ -210,7 +242,7 @@ void NO_INLINE sdmmc_send_command(struct mmcdevice *ctx, uint32_t cmd, uint32_t 
 	ctx->stat1 = sdmmc_read16(REG_SDSTATUS1);
 	sdmmc_write16(REG_SDSTATUS0,0);
 	sdmmc_write16(REG_SDSTATUS1,0);
-	
+
 	if(getSDRESP != 0)
 	{
 		ctx->ret[0] = sdmmc_read16(REG_SDRESP0) | (sdmmc_read16(REG_SDRESP1) << 16);
@@ -222,70 +254,70 @@ void NO_INLINE sdmmc_send_command(struct mmcdevice *ctx, uint32_t cmd, uint32_t 
 
 int NO_INLINE sdmmc_sdcard_writesectors(uint32_t sector_no, uint32_t numsectors, uint8_t *in)
 {
-	if(handelSD.isSDHC == 0) sector_no <<= 9;
-	inittarget(&handelSD);
+	if(handleSD.isSDHC == 0) sector_no <<= 9;
+	inittarget(&handleSD);
 	sdmmc_write16(REG_SDSTOP,0x100);
 #ifdef DATA32_SUPPORT
 	sdmmc_write16(REG_SDBLKCOUNT32,numsectors);
 	sdmmc_write16(REG_SDBLKLEN32,0x200);
 #endif
 	sdmmc_write16(REG_SDBLKCOUNT,numsectors);
-	handelSD.data = in;
-	handelSD.size = numsectors << 9;
-	sdmmc_send_command(&handelSD,0x52C19,sector_no);
-	return geterror(&handelSD);
+	handleSD.data = in;
+	handleSD.size = numsectors << 9;
+	sdmmc_send_command(&handleSD,0x52C19,sector_no);
+	return geterror(&handleSD);
 }
 
 int NO_INLINE sdmmc_sdcard_readsectors(uint32_t sector_no, uint32_t numsectors, uint8_t *out)
 {
-	if(handelSD.isSDHC == 0) sector_no <<= 9;
-	inittarget(&handelSD);
+	if(handleSD.isSDHC == 0) sector_no <<= 9;
+	inittarget(&handleSD);
 	sdmmc_write16(REG_SDSTOP,0x100);
 #ifdef DATA32_SUPPORT
 	sdmmc_write16(REG_SDBLKCOUNT32,numsectors);
 	sdmmc_write16(REG_SDBLKLEN32,0x200);
 #endif
 	sdmmc_write16(REG_SDBLKCOUNT,numsectors);
-	handelSD.data = out;
-	handelSD.size = numsectors << 9;
-	sdmmc_send_command(&handelSD,0x33C12,sector_no);
-	return geterror(&handelSD);
+	handleSD.data = out;
+	handleSD.size = numsectors << 9;
+	sdmmc_send_command(&handleSD,0x33C12,sector_no);
+	return geterror(&handleSD);
 }
 
 
 
 int NO_INLINE sdmmc_nand_readsectors(uint32_t sector_no, uint32_t numsectors, uint8_t *out)
 {
-	if(handelNAND.isSDHC == 0) sector_no <<= 9;
-	inittarget(&handelNAND);
+	if(handleNAND.isSDHC == 0) sector_no <<= 9;
+	inittarget(&handleNAND);
 	sdmmc_write16(REG_SDSTOP,0x100);
 #ifdef DATA32_SUPPORT
 	sdmmc_write16(REG_SDBLKCOUNT32,numsectors);
 	sdmmc_write16(REG_SDBLKLEN32,0x200);
 #endif
 	sdmmc_write16(REG_SDBLKCOUNT,numsectors);
-	handelNAND.data = out;
-	handelNAND.size = numsectors << 9;
-	sdmmc_send_command(&handelNAND,0x33C12,sector_no);
-	inittarget(&handelSD);
-	return geterror(&handelNAND);
+	handleNAND.data = out;
+	handleNAND.size = numsectors << 9;
+	sdmmc_send_command(&handleNAND,0x33C12,sector_no);
+	inittarget(&handleSD);
+	return geterror(&handleNAND);
 }
 
 int NO_INLINE sdmmc_nand_writesectors(uint32_t sector_no, uint32_t numsectors, uint8_t *in) //experimental
 {
-	if(handelNAND.isSDHC == 0) sector_no <<= 9;
-	inittarget(&handelNAND);
+	if(handleNAND.isSDHC == 0) sector_no <<= 9;
+	inittarget(&handleNAND);
 	sdmmc_write16(REG_SDSTOP,0x100);
 #ifdef DATA32_SUPPORT
 	sdmmc_write16(REG_SDBLKCOUNT32,numsectors);
 	sdmmc_write16(REG_SDBLKLEN32,0x200);
 #endif
 	sdmmc_write16(REG_SDBLKCOUNT,numsectors);
-	handelNAND.data = in;
-	handelNAND.size = numsectors << 9;
-	sdmmc_send_command(&handelNAND,0x52C19,sector_no);
-	inittarget(&handelSD);
-	return geterror(&handelNAND);
+	handleNAND.data = in;
+	handleNAND.size = numsectors << 9;
+	sdmmc_send_command(&handleNAND,0x52C19,sector_no);
+	inittarget(&handleSD);
+	return geterror(&handleNAND);
 }
 
 static uint32_t calcSDSize(uint8_t* csd, int type)
@@ -319,21 +351,21 @@ static uint32_t calcSDSize(uint8_t* csd, int type)
 void InitSD()
 {
 	//NAND
-	handelNAND.isSDHC = 0;
-	handelNAND.SDOPT = 0;
-	handelNAND.res = 0;
-	handelNAND.initarg = 1;
-	handelNAND.clk = 0x80;
-	handelNAND.devicenumber = 1;
-	
+	handleNAND.isSDHC = 0;
+	handleNAND.SDOPT = 0;
+	handleNAND.res = 0;
+	handleNAND.initarg = 1;
+	handleNAND.clk = 0x80;
+	handleNAND.devicenumber = 1;
+
 	//SD
-	handelSD.isSDHC = 0;
-	handelSD.SDOPT = 0;
-	handelSD.res = 0;
-	handelSD.initarg = 0;
-	handelSD.clk = 0x80;
-	handelSD.devicenumber = 0;
-	
+	handleSD.isSDHC = 0;
+	handleSD.SDOPT = 0;
+	handleSD.res = 0;
+	handleSD.initarg = 0;
+	handleSD.clk = 0x80;
+	handleSD.devicenumber = 0;
+
 	//sdmmc_mask16(0x100,0x800,0);
 	//sdmmc_mask16(0x100,0x1000,0);
 	//sdmmc_mask16(0x100,0x0,0x402);
@@ -356,7 +388,7 @@ void InitSD()
 	//sdmmc_mask16(0x02,0x3,0);
 	//sdmmc_write16(REG_SDBLKLEN,0x200);
 	//sdmmc_write16(REG_SDSTOP,0);
-	
+
 	*(volatile uint16_t*)0x10006100 &= 0xF7FFu; //SDDATACTL32
 	*(volatile uint16_t*)0x10006100 &= 0xEFFFu; //SDDATACTL32
 #ifdef DATA32_SUPPORT
@@ -392,125 +424,235 @@ void InitSD()
 	*(volatile uint16_t*)0x10006002 &= 0xFFFCu; ////SDPORTSEL
 	*(volatile uint16_t*)0x10006026 = 512; //SDBLKLEN
 	*(volatile uint16_t*)0x10006008 = 0; //SDSTOP
-	
-	inittarget(&handelSD);
+
+	inittarget(&handleSD);
 }
 
 int Nand_Init()
 {
-	inittarget(&handelNAND);
+	inittarget(&handleNAND);
 	waitcycles(0xF000);
-	
-	sdmmc_send_command(&handelNAND,0,0);
-	
+
+	DEBUGPRINT(topScreen, "0x00000 ", handleNAND.error, 10, 20 + 13*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleNAND,0,0);
+
+	DEBUGPRINT(topScreen, "0x10701 ", handleNAND.error, 10, 20 + 13*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
 	do
 	{
 		do
 		{
-			sdmmc_send_command(&handelNAND,0x10701,0x100000);
-		} while ( !(handelNAND.error & 1) );
+			sdmmc_send_command(&handleNAND,0x10701,0x100000);
+			DEBUGPRINT(topScreen, "error ", handleNAND.error, 10, 20 + 17*8, RGB(40, 40, 40), RGB(208, 208, 208));
+			DEBUGPRINT(topScreen, "ret: ", handleNAND.ret[0], 10, 20 + 18*8, RGB(40, 40, 40), RGB(208, 208, 208));
+			DEBUGPRINT(topScreen, "test ", 3, 10, 20 + 19*8, RGB(40, 40, 40), RGB(208, 208, 208));
+		} while ( !(handleNAND.error & 1) );
 	}
-	while((handelNAND.ret[0] & 0x80000000) == 0);
-	
-	sdmmc_send_command(&handelNAND,0x10602,0x0);
-	if((handelNAND.error & 0x4))return -1;
-	
-	sdmmc_send_command(&handelNAND,0x10403,handelNAND.initarg << 0x10);
-	if((handelNAND.error & 0x4))return -1;
-	
-	sdmmc_send_command(&handelNAND,0x10609,handelNAND.initarg << 0x10);
-	if((handelNAND.error & 0x4))return -1;
-	
-	handelNAND.total_size = calcSDSize((uint8_t*)&handelNAND.ret[0],0);
-	handelNAND.clk = 1;
+	while((handleNAND.ret[0] & 0x80000000) == 0);
+
+	DEBUGPRINT(topScreen, "0x10602 ", handleNAND.error, 10, 20 + 13*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleNAND,0x10602,0x0);
+	if((handleNAND.error & 0x4))return -1;
+
+	DEBUGPRINT(topScreen, "0x10403 ", handleNAND.error, 10, 20 + 13*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleNAND,0x10403,handleNAND.initarg << 0x10);
+	if((handleNAND.error & 0x4))return -1;
+
+	DEBUGPRINT(topScreen, "0x10609 ", handleNAND.error, 10, 20 + 13*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleNAND,0x10609,handleNAND.initarg << 0x10);
+	if((handleNAND.error & 0x4))return -1;
+
+	handleNAND.total_size = calcSDSize((uint8_t*)&handleNAND.ret[0],0);
+	handleNAND.clk = 1;
 	setckl(1);
-	
-	sdmmc_send_command(&handelNAND,0x10407,handelNAND.initarg << 0x10);
-	if((handelNAND.error & 0x4))return -1;
-	
-	handelNAND.SDOPT = 1;
-	
-	sdmmc_send_command(&handelNAND,0x10506,0x3B70100);
-	if((handelNAND.error & 0x4))return -1;
-	
-	sdmmc_send_command(&handelNAND,0x10506,0x3B90100);
-	if((handelNAND.error & 0x4))return -1;
-	
-	sdmmc_send_command(&handelNAND,0x1040D,handelNAND.initarg << 0x10);
-	if((handelNAND.error & 0x4))return -1;
-	
-	sdmmc_send_command(&handelNAND,0x10410,0x200);
-	if((handelNAND.error & 0x4))return -1;
-	
-	handelNAND.clk |= 0x200; 
-	
-	inittarget(&handelSD);
-	
+
+	DEBUGPRINT(topScreen, "0x10407 ", handleNAND.error, 10, 20 + 13*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleNAND,0x10407,handleNAND.initarg << 0x10);
+	if((handleNAND.error & 0x4))return -1;
+
+	DEBUGPRINT(topScreen, "0x10506 ", handleNAND.error, 10, 20 + 13*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	handleNAND.SDOPT = 1;
+
+	sdmmc_send_command(&handleNAND,0x10506,0x3B70100);
+	if((handleNAND.error & 0x4))return -1;
+
+	DEBUGPRINT(topScreen, "0x10506 ", handleNAND.error, 10, 20 + 13*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleNAND,0x10506,0x3B90100);
+	if((handleNAND.error & 0x4))return -1;
+
+	DEBUGPRINT(topScreen, "0x1040D ", handleNAND.error, 10, 20 + 13*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleNAND,0x1040D,handleNAND.initarg << 0x10);
+	if((handleNAND.error & 0x4))return -1;
+
+	DEBUGPRINT(topScreen, "0x10410 ", handleNAND.error, 10, 20 + 13*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleNAND,0x10410,0x200);
+	if((handleNAND.error & 0x4))return -1;
+
+	handleNAND.clk |= 0x200;
+
+	inittarget(&handleSD);
+
 	return 0;
 }
 
 int SD_Init()
 {
-	inittarget(&handelSD);
+	inittarget(&handleSD);
+	//waitcycles(0x3E8);
 	waitcycles(0xF000);
-	sdmmc_send_command(&handelSD,0,0);
-	sdmmc_send_command(&handelSD,0x10408,0x1AA);
-	uint32_t temp = (handelSD.error & 0x1) << 0x1E;
+	DEBUGPRINT(topScreen, "0x00000 ", handleSD.error, 10, 20 + 14*8, RGB(40, 40, 40), RGB(208, 208, 208));
+	sdmmc_send_command(&handleSD,0,0);
+	DEBUGPRINT(topScreen, "0x10408 ", handleSD.error, 10, 20 + 14*8, RGB(40, 40, 40), RGB(208, 208, 208));
+	sdmmc_send_command(&handleSD,0x10408,0x1AA);
+	//uint32_t temp = (handleSD.ret[0] == 0x1AA) << 0x1E;
+	uint32_t temp = (handleSD.error & 0x1) << 0x1E;
 
+	DEBUGPRINT(topScreen, "0x10769 ", handleSD.error, 10, 20 + 14*8, RGB(40, 40, 40), RGB(208, 208, 208));
+	DEBUGPRINT(topScreen, "sd ret: ", handleSD.ret[0], 10, 20 + 15*8, RGB(40, 40, 40), RGB(208, 208, 208));
+	DEBUGPRINT(topScreen, "temp: ", temp, 10, 20 + 16*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	//int count = 0;
 	uint32_t temp2 = 0;
 	do
 	{
 		do
 		{
-			sdmmc_send_command(&handelSD,0x10437,handelSD.initarg << 0x10);
-			sdmmc_send_command(&handelSD,0x10769,0x00FF8000 | temp);
+			sdmmc_send_command(&handleSD,0x10437,handleSD.initarg << 0x10);
+			sdmmc_send_command(&handleSD,0x10769,0x00FF8000 | temp);
 			temp2 = 1;
-		} while ( !(handelSD.error & 1) );
-	}
-	while((handelSD.ret[0] & 0x80000000) == 0);
+		} while ( !(handleSD.error & 1) );
 
-	if(!((handelSD.ret[0] >> 30) & 1) || !temp)
+		//DEBUGPRINT(topScreen, "sd error ", handleSD.error, 10, 20 + 17*8, RGB(40, 40, 40), RGB(208, 208, 208));
+		//DEBUGPRINT(topScreen, "sd ret: ", handleSD.ret[0], 10, 20 + 18*8, RGB(40, 40, 40), RGB(208, 208, 208));
+		//DEBUGPRINT(topScreen, "count: ", count++, 10, 20 + 19*8, RGB(40, 40, 40), RGB(208, 208, 208));
+	}
+	while((handleSD.ret[0] & 0x80000000) == 0);
+	//do
+	//{
+	//	sdmmc_send_command(&handleSD,0x10437,handleSD.initarg << 0x10);
+	//	sdmmc_send_command(&handleSD,0x10769,0x00FF8000 | temp);
+	//
+	//	DEBUGPRINT(topScreen, "sd error ", handleSD.error, 10, 20 + 17*8, RGB(40, 40, 40), RGB(208, 208, 208));
+	//	DEBUGPRINT(topScreen, "sd ret: ", handleSD.ret[0], 10, 20 + 18*8, RGB(40, 40, 40), RGB(208, 208, 208));
+	//	DEBUGPRINT(topScreen, "count: ", count++, 10, 20 + 19*8, RGB(40, 40, 40), RGB(208, 208, 208));
+	//}
+	//while(!(handleSD.ret[0] & 0x80000000));
+
+	if(!((handleSD.ret[0] >> 30) & 1) || !temp)
 		temp2 = 0;
-	
-	handelSD.isSDHC = temp2;
-	
-	sdmmc_send_command(&handelSD,0x10602,0);
-	if((handelSD.error & 0x4)) return -1;
-	
-	sdmmc_send_command(&handelSD,0x10403,0);
-	if((handelSD.error & 0x4)) return -1;
-	handelSD.initarg = handelSD.ret[0] >> 0x10;
-	
-	sdmmc_send_command(&handelSD,0x10609,handelSD.initarg << 0x10);
-	if((handelSD.error & 0x4)) return -1;
-	
-	handelSD.total_size = calcSDSize((uint8_t*)&handelSD.ret[0],-1);
-	handelSD.clk = 1;
+
+	handleSD.isSDHC = temp2;
+	//handleSD.isSDHC = (handleSD.ret[0] & 0x40000000);
+
+	DEBUGPRINT(topScreen, "0x10602 ", handleSD.error, 10, 20 + 14*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleSD,0x10602,0);
+	if((handleSD.error & 0x4)) return -1;
+
+	DEBUGPRINT(topScreen, "0x10403 ", handleSD.error, 10, 20 + 14*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleSD,0x10403,0);
+	if((handleSD.error & 0x4)) return -1;
+	handleSD.initarg = handleSD.ret[0] >> 0x10;
+
+	DEBUGPRINT(topScreen, "0x10609 ", handleSD.error, 10, 20 + 14*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleSD,0x10609,handleSD.initarg << 0x10);
+	if((handleSD.error & 0x4)) return -1;
+
+	handleSD.total_size = calcSDSize((uint8_t*)&handleSD.ret[0],-1);
+	handleSD.clk = 1;
 	setckl(1);
-	
-	sdmmc_send_command(&handelSD,0x10507,handelSD.initarg << 0x10);
-	if((handelSD.error & 0x4)) return -1;
-	
-	sdmmc_send_command(&handelSD,0x10437,handelSD.initarg << 0x10);
-	if((handelSD.error & 0x4)) return -1;
-	
-	handelSD.SDOPT = 1;
-	sdmmc_send_command(&handelSD,0x10446,0x2);
-	if((handelSD.error & 0x4)) return -1;
-	
-	sdmmc_send_command(&handelSD,0x1040D,handelSD.initarg << 0x10);
-	if((handelSD.error & 0x4)) return -1;
-	
-	sdmmc_send_command(&handelSD,0x10410,0x200);
-	if((handelSD.error & 0x4)) return -1;
-	handelSD.clk |= 0x200;
-	
+
+	DEBUGPRINT(topScreen, "0x10507 ", handleSD.error, 10, 20 + 14*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleSD,0x10507,handleSD.initarg << 0x10);
+	if((handleSD.error & 0x4)) return -1;
+
+	DEBUGPRINT(topScreen, "0x10437 ", handleSD.error, 10, 20 + 14*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleSD,0x10437,handleSD.initarg << 0x10);
+	if((handleSD.error & 0x4)) return -1;
+
+	DEBUGPRINT(topScreen, "0x10446 ", handleSD.error, 10, 20 + 14*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	handleSD.SDOPT = 1;
+	sdmmc_send_command(&handleSD,0x10446,0x2);
+	if((handleSD.error & 0x4)) return -1;
+
+	DEBUGPRINT(topScreen, "0x1040D ", handleSD.error, 10, 20 + 14*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleSD,0x1040D,handleSD.initarg << 0x10);
+	if((handleSD.error & 0x4)) return -1;
+
+	DEBUGPRINT(topScreen, "0x10410 ", handleSD.error, 10, 20 + 14*8, RGB(40, 40, 40), RGB(208, 208, 208));
+
+	sdmmc_send_command(&handleSD,0x10410,0x200);
+	if((handleSD.error & 0x4)) return -1;
+	handleSD.clk |= 0x200;
+
 	return 0;
 }
 
 void sdmmc_sdcard_init()
 {
+	DEBUGPRINT(topScreen, "sdmmc_sdcard_init ", handleSD.error, 10, 20 + 2*8, RGB(40, 40, 40), RGB(208, 208, 208));
 	InitSD();
-	uint32_t nand_res = Nand_Init();
-	uint32_t sd_res = SD_Init();
+	//SD_Init2();
+	//Nand_Init();
+	uint32_t nand_res __attribute__((unused)) = Nand_Init();
+	DEBUGPRINT(topScreen, "nand_res ", nand_res, 10, 20 + 3*8, RGB(40, 40, 40), RGB(208, 208, 208));
+	uint32_t sd_res __attribute__((unused)) = SD_Init();
+	DEBUGPRINT(topScreen, "sd_res ", sd_res, 10, 20 + 4*8, RGB(40, 40, 40), RGB(208, 208, 208));
+}
+
+int sdmmc_get_cid( int isNand, uint32_t *info)
+{
+	struct mmcdevice *device;
+	if(isNand)
+		device = &handleNAND;
+	else
+		device = &handleSD;
+
+	inittarget(device);
+	// use cmd7 to put sd card in standby mode
+	// CMD7
+	{
+		sdmmc_send_command(device,0x10507,0);
+		//if((device->error & 0x4)) return -1;
+	}
+
+	// get sd card info
+	// use cmd10 to read CID
+	{
+		sdmmc_send_command(device,0x1060A,device->initarg << 0x10);
+		//if((device->error & 0x4)) return -2;
+
+		for( int i = 0; i < 4; ++i ) {
+			info[i] = device->ret[i];
+		}
+	}
+
+	// put sd card back to transfer mode
+	// CMD7
+	{
+		sdmmc_send_command(device,0x10507,device->initarg << 0x10);
+		//if((device->error & 0x4)) return -3;
+	}
+
+	if(isNand)
+	{
+		inittarget(&handleSD);
+	}
+
+	return 0;
 }
