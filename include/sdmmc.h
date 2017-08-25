@@ -70,6 +70,30 @@
 #define TMIO_STAT1_CMD_BUSY      0x4000
 #define TMIO_STAT1_ILL_ACCESS    0x8000
 
+//Comes from TWLSDK mongoose.tef DWARF info
+#define SDMC_NORMAL              0x00000000
+#define SDMC_ERR_COMMAND         0x00000001
+#define SDMC_ERR_CRC             0x00000002
+#define SDMC_ERR_END             0x00000004
+#define SDMC_ERR_TIMEOUT         0x00000008
+#define SDMC_ERR_FIFO_OVF        0x00000010
+#define SDMC_ERR_FIFO_UDF        0x00000020
+#define SDMC_ERR_WP              0x00000040
+#define SDMC_ERR_ABORT           0x00000080
+#define SDMC_ERR_FPGA_TIMEOUT    0x00000100
+#define SDMC_ERR_PARAM           0x00000200
+#define SDMC_ERR_R1_STATUS       0x00000800
+#define SDMC_ERR_NUM_WR_SECTORS  0x00001000
+#define SDMC_ERR_RESET           0x00002000
+#define SDMC_ERR_ILA             0x00004000
+#define SDMC_ERR_INFO_DETECT     0x00008000
+
+#define SDMC_STAT_ERR_UNKNOWN    0x00080000
+#define SDMC_STAT_ERR_CC         0x00100000
+#define SDMC_STAT_ERR_ECC_FAILED 0x00200000
+#define SDMC_STAT_ERR_CRC        0x00800000
+#define SDMC_STAT_ERR_OTHER      0xf9c70008
+
 #define TMIO_MASK_ALL           0x837f031d
 
 #define TMIO_MASK_GW            (TMIO_STAT1_ILL_ACCESS | TMIO_STAT1_CMDTIMEOUT | TMIO_STAT1_TXUNDERRUN | TMIO_STAT1_RXOVERFLOW | \
@@ -77,6 +101,47 @@
 
 #define TMIO_MASK_READOP  (TMIO_STAT1_RXRDY | TMIO_STAT1_DATAEND)
 #define TMIO_MASK_WRITEOP (TMIO_STAT1_TXRQ | TMIO_STAT1_DATAEND)
+
+enum {
+	TMIO_CMD_APP = 0x0040,
+	TMIO_CMD_RESP_R1 = 0x0400,
+	TMIO_CMD_RESP_R1B = 0x0500,
+	TMIO_CMD_RESP_R2 = 0x0600,
+	TMIO_CMD_RESP_R3 = 0x0700,
+	TMIO_CMD_DATA_PRESENT = 0x0800,
+	TMIO_CMD_TRANSFER_READ = 0x1000,
+	TMIO_CMD_TRANSFER_MULTI = 0x2000
+};
+
+enum {
+	// Class 1
+	MMC_IDLE = 0,
+	MMC_SEND_OP_COND = 1,
+	MMC_ALL_SEND_CID = 2,
+	MMC_SET_RELATIVE_ADDR = 3,
+	MMC_SWITCH = 6,
+	MMC_SELECT_CARD = 7,
+	MMC_SEND_CSD = 9,
+	MMC_SEND_STATUS = 13,
+
+	// Class 2
+	MMC_SET_BLOCKLEN = 16,
+	MMC_READ_BLOCK_MULTI = 18,
+
+	// Class 4
+	MMC_WRITE_BLOCK_MULTI = 25,
+
+	// Class 8
+	MMC_APP_CMD = 55
+};
+
+enum {
+	// Class 0
+	SD_SEND_IF_COND = 8,
+
+	// Application command
+	SD_APP_OP_COND = 41
+};
 
 #ifdef __cplusplus
 extern "C" {
@@ -112,6 +177,7 @@ extern "C" {
 	void InitSD();
 	int Nand_Init();
 	int SD_Init();
+	int sdmmc_get_cid( int isNand, uint32_t *info );
 
 #ifdef __cplusplus
 };

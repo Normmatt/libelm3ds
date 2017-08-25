@@ -919,7 +919,7 @@ FRESULT remove_chain (
 #if _USE_TRIM
 			if (ecl + 1 == nxt) {	/* Is next cluster contiguous? */
 				ecl = nxt;
-			} else {				/* End of contiguous clusters */ 
+			} else {				/* End of contiguous clusters */
 				rt[0] = clust2sect(fs, scl);					/* Start sector */
 				rt[1] = clust2sect(fs, ecl) + fs->csize - 1;	/* End sector */
 				disk_ioctl(fs->drv, CTRL_TRIM, rt);				/* Erase the block */
@@ -2083,7 +2083,7 @@ int get_ldnumber (		/* Returns logical drive number (-1:invalid drive) */
 		for (tt = *path; (UINT)*tt >= (_USE_LFN ? ' ' : '!') && *tt != ':'; tt++) ;	/* Find ':' in the path */
 		if (*tt == ':') {	/* If a ':' is exist in the path name */
 			tp = *path;
-			i = *tp++ - '0'; 
+			i = *tp++ - '0';
 			if (i < 10 && tp == tt) {	/* Is there a numeric drive id? */
 				if (i < _VOLUMES) {	/* If a drive id is found, get the value and strip it */
 					vol = (int)i;
@@ -2932,7 +2932,7 @@ FRESULT f_getcwd (
 				res = dir_read(&dj, 0);
 				if (res != FR_OK) break;
 				if (ccl == ld_clust(dj.fs, dj.dir)) break;	/* Found the entry */
-				res = dir_next(&dj, 0);	
+				res = dir_next(&dj, 0);
 			} while (res == FR_OK);
 			if (res == FR_NO_FILE) res = FR_INT_ERR;/* It cannot be 'not found'. */
 			if (res != FR_OK) break;
@@ -4028,7 +4028,7 @@ FRESULT f_mkfs (
 	static const WORD vst[] = { 1024,   512,  256,  128,   64,    32,   16,    8,    4,    2,   0};
 	static const WORD cst[] = {32768, 16384, 8192, 4096, 2048, 16384, 8192, 4096, 2048, 1024, 512};
 	int vol;
-	BYTE fmt, md, sys, *tbl, pdrv, part;
+	BYTE fmt, md, sys, *tbl, pdrv; // , part;
 	DWORD n_clst, vs, n, wsect;
 	UINT i;
 	DWORD b_vol, b_fat, b_dir, b_data;	/* LBA */
@@ -4040,7 +4040,7 @@ FRESULT f_mkfs (
 #endif
 
 //TODO: mod b_vol to be 2 GB for n3ds and 1GB for old 3ds
-	
+
 
 
 	/* Check mounted drive and clear work area */
@@ -4051,7 +4051,7 @@ FRESULT f_mkfs (
 	if (!fs) return FR_NOT_ENABLED;
 	fs->fs_type = 0;
 	pdrv = LD2PD(vol);	/* Physical drive */
-	part = LD2PT(vol);	/* Partition (0:auto detect, 1-4:get from partition table)*/
+	// part = LD2PT(vol);	/* Partition (0:auto detect, 1-4:get from partition table)*/
 
 	/* Get disk statics */
 	stat = disk_initialize(pdrv);
